@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS Billing Dashboard</title>
+  <style>
+    :root {
+      --bg: #f5f6fa;
+      --card: #ffffff;
+      --border: #e2e5ee;
+      --text: #1a1d27;
+      --muted: #6b7085;
+      --accent: #4f46e5;
+      --green: #16a34a;
+      --orange: #d97706;
+      --red: #dc2626;
+      --blue: #2563eb;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 { font-size: 16px; font-weight: 600; }
+    .header h1 span { color: var(--orange); }
+    .header .refresh {
+      background: var(--accent); color: #fff; border: none; padding: 5px 12px;
+      border-radius: 6px; cursor: pointer; font-size: 12px;
+    }
+    .header .refresh:hover { opacity: 0.9; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 10px 20px;
+      flex-shrink: 0;
+    }
+    .summary-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .summary-card .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .summary-card .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .summary-card .sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 10px;
+      padding: 0 20px 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .card h2 { font-size: 12px; font-weight: 600; margin-bottom: 6px; flex-shrink: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+    td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    .amount { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .bar-container { width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+    .table-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+    .chart-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .chart { width: 100%; flex: 1; display: flex; align-items: flex-end; gap: 2px; min-height: 0; }
+    .chart-bar {
+      flex: 1; background: var(--accent); border-radius: 2px 2px 0 0;
+      position: relative; min-height: 2px; transition: height 0.5s ease;
+      cursor: pointer;
+    }
+    .chart-bar:hover { opacity: 0.8; }
+    .chart-bar .tooltip {
+      display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+      background: #1a1d27; color: #fff; padding: 3px 6px; border-radius: 4px; font-size: 10px;
+      white-space: nowrap; margin-bottom: 4px; z-index: 10;
+    }
+    .chart-bar:hover .tooltip { display: block; }
+    .chart-labels { display: flex; gap: 2px; padding-top: 4px; flex-shrink: 0; }
+    .chart-labels span { flex: 1; text-align: center; font-size: 9px; color: var(--muted); }
+    .loading { text-align: center; padding: 20px; color: var(--muted); font-size: 12px; }
+    .error { color: var(--red); padding: 8px; background: rgba(239,68,68,0.1); border-radius: 6px; font-size: 11px; }
+    .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; font-size: 10px; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span>AWS</span> Billing Dashboard</h1>
+    <button class="refresh" onclick="loadAll()">Refresh</button>
+  </div>
+
+  <div class="summary" id="summary">
+    <div class="summary-card">
+      <div class="label">Current Month Total</div>
+      <div class="value" id="total-cost">--</div>
+      <div class="sub" id="total-period"></div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Bedrock Cost</div>
+      <div class="value" id="bedrock-cost" style="color: var(--orange)">--</div>
+      <div class="sub" id="bedrock-pct"></div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Forecast (End of Month)</div>
+      <div class="value" id="forecast-cost" style="color: var(--blue)">--</div>
+      <div class="sub" id="forecast-period"></div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Services Used</div>
+      <div class="value" id="service-count">--</div>
+      <div class="sub">This month</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Daily Cost Chart -->
+    <div class="card">
+      <h2>Daily Costs (Current Month)</h2>
+      <div id="daily-chart-container">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Bedrock Daily Chart -->
+    <div class="card">
+      <h2>Bedrock Daily Costs</h2>
+      <div id="bedrock-daily-container">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Cost by Service -->
+    <div class="card">
+      <h2>Cost by Service</h2>
+      <div class="table-scroll" id="services-container">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Monthly Trend + Bedrock by Model -->
+    <div class="card">
+      <h2>Monthly Trend (6 Months) &amp; Bedrock Usage</h2>
+      <div id="trend-container" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+        <div class="loading">Loading...</div>
+      </div>
+      <div id="bedrock-models-container" style="margin-top:6px; flex-shrink:0; max-height:35%; overflow-y:auto;">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = ['#6366f1','#f59e0b','#22c55e','#3b82f6','#ef4444','#a855f7','#ec4899','#14b8a6','#f97316','#84cc16'];
+
+    function $(amount) {
+      return '$' + parseFloat(amount).toFixed(2);
+    }
+
+    function showError(containerId, msg) {
+      document.getElementById(containerId).innerHTML = `<div class="error">${msg}</div>`;
+    }
+
+    async function api(endpoint) {
+      const res = await fetch(`/api/${endpoint}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'API Error');
+      }
+      return res.json();
+    }
+
+    function renderBarChart(containerId, labels, values, color = 'var(--accent)') {
+      const max = Math.max(...values, 0.01);
+      const container = document.getElementById(containerId);
+      container.innerHTML = `
+        <div class="chart-wrap">
+          <div class="chart">
+            ${values.map((v, i) => `
+              <div class="chart-bar" style="height: ${(v / max) * 100}%; background: ${color}">
+                <div class="tooltip">${labels[i]}: ${$(v)}</div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="chart-labels">
+            ${labels.map((l, i) => `<span>${i % Math.ceil(labels.length / 8) === 0 ? l.slice(5) : ''}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderServiceTable(containerId, services) {
+      const total = services.reduce((s, sv) => s + sv.cost, 0);
+      document.getElementById(containerId).innerHTML = `
+        <table>
+          <tr><th>Service</th><th style="width:120px">Cost</th><th style="width:100px"></th></tr>
+          ${services.map((s, i) => `
+            <tr>
+              <td><span class="dot" style="background:${COLORS[i % COLORS.length]}"></span>${s.name}</td>
+              <td class="amount">${$(s.cost)}</td>
+              <td>
+                <div class="bar-container">
+                  <div class="bar" style="width:${(s.cost / total) * 100}%; background:${COLORS[i % COLORS.length]}"></div>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </table>
+      `;
+    }
+
+    async function loadSummaryAndServices() {
+      try {
+        const data = await api('services');
+        const period = data.period;
+        const groups = data.results[0]?.Groups || [];
+
+        const services = groups
+          .map(g => ({ name: g.Keys[0], cost: parseFloat(g.Metrics.BlendedCost.Amount) }))
+          .filter(s => s.cost > 0.001)
+          .sort((a, b) => b.cost - a.cost);
+
+        const total = services.reduce((s, sv) => s + sv.cost, 0);
+        const bedrock = services.find(s => s.name.includes('Bedrock'));
+
+        document.getElementById('total-cost').textContent = $(total);
+        document.getElementById('total-period').textContent = `${period.start} to ${period.end}`;
+        document.getElementById('bedrock-cost').textContent = bedrock ? $(bedrock.cost) : '$0.00';
+        document.getElementById('bedrock-pct').textContent = bedrock
+          ? `${((bedrock.cost / total) * 100).toFixed(1)}% of total`
+          : 'No Bedrock usage';
+        document.getElementById('service-count').textContent = services.length;
+
+        renderServiceTable('services-container', services);
+      } catch (err) {
+        showError('services-container', err.message);
+      }
+    }
+
+    async function loadDailyCosts() {
+      try {
+        const data = await api('daily');
+        const labels = data.results.map(r => r.TimePeriod.Start);
+        const values = data.results.map(r => parseFloat(r.Total.BlendedCost.Amount));
+        renderBarChart('daily-chart-container', labels, values);
+      } catch (err) {
+        showError('daily-chart-container', err.message);
+      }
+    }
+
+    async function loadBedrockDaily() {
+      try {
+        const data = await api('bedrock-daily');
+        const labels = data.results.map(r => r.TimePeriod.Start);
+        const values = data.results.map(r => {
+          if (r.Total) return parseFloat(r.Total.BlendedCost.Amount);
+          return (r.Groups || []).reduce((sum, g) => sum + parseFloat(g.Metrics.BlendedCost.Amount), 0);
+        });
+        if (values.every(v => v === 0)) {
+          document.getElementById('bedrock-daily-container').innerHTML = '<div class="loading">No Bedrock usage this month</div>';
+        } else {
+          renderBarChart('bedrock-daily-container', labels, values, 'var(--orange)');
+        }
+      } catch (err) {
+        showError('bedrock-daily-container', err.message);
+      }
+    }
+
+    async function loadBedrockModels() {
+      try {
+        const data = await api('bedrock-models');
+        const result = data.results[0];
+        const cost = result?.Total ? parseFloat(result.Total.BlendedCost.Amount) : 0;
+
+        if (cost <= 0.0001) {
+          document.getElementById('bedrock-models-container').innerHTML = '<div class="loading" style="padding:6px; font-size:10px;">No Bedrock usage this month</div>';
+        } else {
+          document.getElementById('bedrock-models-container').innerHTML = `
+            <table><tr><td>Amazon Bedrock</td><td class="amount">${$(cost)}</td></tr></table>
+          `;
+        }
+      } catch (err) {
+        showError('bedrock-models-container', err.message);
+      }
+    }
+
+    async function loadTrend() {
+      try {
+        const data = await api('trend');
+        // Aggregate by month
+        const months = data.results.map(r => {
+          const total = (r.Groups || []).reduce((s, g) => s + parseFloat(g.Metrics.BlendedCost.Amount), 0);
+          const bedrock = (r.Groups || [])
+            .filter(g => g.Keys[0].includes('Bedrock'))
+            .reduce((s, g) => s + parseFloat(g.Metrics.BlendedCost.Amount), 0);
+          return { month: r.TimePeriod.Start.slice(0, 7), total, bedrock };
+        });
+
+        const max = Math.max(...months.map(m => m.total), 0.01);
+        document.getElementById('trend-container').innerHTML = `
+          <div class="legend">
+            <span><span class="dot" style="background:var(--accent)"></span>Total</span>
+            <span><span class="dot" style="background:var(--orange)"></span>Bedrock</span>
+          </div>
+          <div class="chart" style="flex:1; min-height:0;">
+            ${months.map(m => `
+              <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:1px; height:100%; justify-content:flex-end;">
+                <div class="chart-bar" style="height:${(m.total / max) * 100}%; background:var(--accent); width:55%">
+                  <div class="tooltip">Total: ${$(m.total)}</div>
+                </div>
+                <div class="chart-bar" style="height:${(m.bedrock / max) * 100}%; background:var(--orange); width:55%; min-height:${m.bedrock > 0 ? 2 : 0}px">
+                  <div class="tooltip">Bedrock: ${$(m.bedrock)}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="chart-labels" style="flex-shrink:0;">
+            ${months.map(m => `<span>${m.month}</span>`).join('')}
+          </div>
+        `;
+      } catch (err) {
+        showError('trend-container', err.message);
+      }
+    }
+
+    async function loadForecast() {
+      try {
+        const data = await api('forecast');
+        if (data.forecast) {
+          document.getElementById('forecast-cost').textContent = $(data.forecast.Amount);
+          document.getElementById('forecast-period').textContent = `${data.period.start} to ${data.period.end}`;
+        } else {
+          document.getElementById('forecast-cost').textContent = '--';
+          document.getElementById('forecast-period').textContent = data.message || '';
+        }
+      } catch (err) {
+        document.getElementById('forecast-cost').textContent = '--';
+        document.getElementById('forecast-period').textContent = 'Forecast unavailable';
+      }
+    }
+
+    function loadAll() {
+      loadSummaryAndServices();
+      loadDailyCosts();
+      loadBedrockDaily();
+      loadBedrockModels();
+      loadTrend();
+      loadForecast();
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>
