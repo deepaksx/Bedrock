@@ -14,7 +14,8 @@ const SYSTEMS = {
     sshKey: null,
     openclawDir: '/data/.openclaw',
     workspaceDir: '/data/.openclaw/workspace',
-    color: '#8b5cf6'
+    color: '#8b5cf6',
+    deviceId: '466d99c398568d6bec214bc11a95adbb224792c55c822a98466c4a59b8bb04d7'
   },
   solclone: {
     name: 'SolClone (@solclone_bot)',
@@ -23,7 +24,8 @@ const SYSTEMS = {
     sshKey: '/data/.openclaw/workspace/.solclone-key.pem',
     openclawDir: '/home/ubuntu/.openclaw',
     workspaceDir: '/home/ubuntu/.openclaw/workspace',
-    color: '#16a34a'
+    color: '#16a34a',
+    deviceId: '5bb224001289df34353017d368f2f420ed91df9d67d6f29b765b3fd842729068'
   },
   npm: {
     name: 'NPM (@nxsys_npm_bot)',
@@ -32,7 +34,8 @@ const SYSTEMS = {
     sshKey: '/data/.openclaw/workspace/.npm-key.pem',
     openclawDir: '/home/ubuntu/.openclaw',
     workspaceDir: '/home/ubuntu/.openclaw/workspace',
-    color: '#d97706'
+    color: '#d97706',
+    deviceId: 'd774ee072d48a338f547fb37e6a69e47dc58442fd008c011e9a0da28d8c32e7b'
   }
 };
 
