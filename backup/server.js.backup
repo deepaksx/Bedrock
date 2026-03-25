@@ -518,33 +518,6 @@ function getSessionCost(sessionId) {
   return sessionCostCache[sessionId] || 0;
 }
 
-const { getAllSystemsSessions } = require('./multi-system.js');
-
-// Multi-system sessions cache
-let multiSystemCache = null;
-let multiSystemCacheTime = 0;
-
-async function getMultiSystemSessionsJson() {
-  const now = Date.now();
-  // Refresh cache every 30 seconds
-  if (!multiSystemCache || (now - multiSystemCacheTime) > 30000) {
-    try {
-      console.log('🔄 Refreshing multi-system sessions cache...');
-      multiSystemCache = await getAllSystemsSessions();
-      multiSystemCacheTime = now;
-      console.log(`✅ Cached ${multiSystemCache.totalSessions} sessions from ${Object.keys(multiSystemCache.systemHealth).length} systems`);
-    } catch (error) {
-      console.error('❌ Failed to refresh multi-system cache:', error);
-      // Keep old cache if available
-      if (!multiSystemCache) {
-        multiSystemCache = { sessions: [], systemHealth: {}, totalSessions: 0, systemCounts: {} };
-      }
-    }
-  }
-  
-  return multiSystemCache;
-}
-
 function getSessionsJson() {
   try {
     const sFile = path.join(sessDir, 'sessions.json');
@@ -563,10 +536,7 @@ function getSessionsJson() {
       channel: s.channel || '-',
       sessionId: s.sessionId || '-',
       lastMessage: getLastMessage(s.sessionId || key),
-      cost: getSessionCost(s.sessionId || key),
-      systemId: 'sol', // Mark local sessions as Sol
-      systemName: 'Sol (@solblunt_bot)',
-      systemType: 'primary'
+      cost: getSessionCost(s.sessionId || key)
     }));
   } catch (e) { return []; }
 }
@@ -1897,95 +1867,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Multi-system test endpoint (no auth for testing)
-  if (req.url === '/multi-system-test') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    getMultiSystemSessionsJson().then(data => {
-      res.end(JSON.stringify({
-        totalSessions: data.totalSessions,
-        systemCounts: data.systemCounts,
-        systems: Object.keys(data.systemHealth),
-        timestamp: data.timestamp
-      }));
-    }).catch(error => {
-      res.end(JSON.stringify({ error: error.message }));
-    });
-    return;
-  }
-
   if (req.url.startsWith('/api/')) {
     if (!requireAuth(req, res)) return;
     setSameSiteCORS(req, res);
 
-    // Multi-system test endpoint (no auth for testing)
-    if (req.url === '/api/multi-system-test') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      getMultiSystemSessionsJson().then(data => {
-        res.end(JSON.stringify({
-          totalSessions: data.totalSessions,
-          systemCounts: data.systemCounts,
-          systems: Object.keys(data.systemHealth),
-          timestamp: data.timestamp
-        }));
-      }).catch(error => {
-        res.end(JSON.stringify({ error: error.message }));
-      });
-      return;
-    }
-
     if (req.url === '/api/sessions') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      
-      // Check if multi-system mode is requested
-      const url = new URL(req.url, `http://localhost:${PORT}`);
-      const multiSystem = url.searchParams.get('multi') === 'true';
-      
-      if (multiSystem) {
-        // Serve multi-system sessions
-        getMultiSystemSessionsJson().then(data => {
-          // Convert multi-system data to sessions format
-          const sessions = data.sessions.map(session => {
-            // Extract session data from the session object structure
-            const sessionKey = Object.keys(session)[0];
-            const sessionData = session[sessionKey] || {};
-            
-            return {
-              key: sessionKey,
-              label: sessionData.label || session.systemName || 'Unknown',
-              model: sessionData.model || '-',
-              totalTokens: sessionData.totalTokens || 0,
-              contextTokens: sessionData.contextTokens || 0,
-              kind: sessionData.kind || 'direct',
-              updatedAt: sessionData.updatedAt || 0,
-              createdAt: sessionData.createdAt || sessionData.updatedAt || 0,
-              aborted: sessionData.abortedLastRun || false,
-              thinkingLevel: sessionData.thinkingLevel || null,
-              channel: sessionData.channel || session.systemId,
-              sessionId: sessionData.sessionId || sessionKey,
-              lastMessage: '', // Could be enhanced to get actual last message
-              cost: 0, // Could be enhanced to calculate cost
-              systemId: session.systemId,
-              systemName: session.systemName,
-              systemType: session.systemType,
-              systemColor: session.systemColor
-            };
-          });
-          
-          res.end(JSON.stringify({
-            sessions,
-            systemHealth: data.systemHealth,
-            systemCounts: data.systemCounts,
-            totalSessions: data.totalSessions,
-            isMultiSystem: true
-          }));
-        }).catch(error => {
-          console.error('Multi-system sessions error:', error);
-          res.end(JSON.stringify(getSessionsJson()));
-        });
-      } else {
-        // Serve local sessions only
-        res.end(JSON.stringify(getSessionsJson()));
-      }
+      res.end(JSON.stringify(getSessionsJson()));
       return;
     }
     if (req.url === '/api/usage') {
